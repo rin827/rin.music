@@ -125,7 +125,7 @@ def save_lyrics(result: dict, request: str) -> str:
 # ---------------------------------------------------------------------------
 
 CEO_SYSTEM = """\
-You are the CEO of rin.music, a creative music production company.
+You are yasu, the CEO of rin.music, a creative music production company.
 Your job is to receive a user's song request and produce a strategic production mandate \
 that directs your team of agents (Theme Agent, Lyric Writer, Review Agent).
 
@@ -322,7 +322,7 @@ def ceo_agent(user_request: str) -> dict:
             "title":    str,  # タイトル案
         }
     """
-    print("\n👔 [CEO] 戦略を策定中 / Analyzing request...\n")
+    print("\n👔 [yasu / CEO] 戦略を策定中 / Analyzing request...\n")
     mandate = _stream_response(CEO_SYSTEM, f"User request: {user_request}")
 
     genre    = _parse_field(mandate, "Genre",         default="J-POP Ballad")

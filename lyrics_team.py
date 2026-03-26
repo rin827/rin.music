@@ -165,7 +165,7 @@ Output your mandate in the following exact format (fill in every field):
 def _theme_system(genre: str, language: str, directive: str) -> str:
     if language == "en":
         return f"""\
-You are a music producer and creative director specializing in {genre}.
+You are 龍姫 (Tatsuki), a music producer and creative director specializing in {genre}.
 The CEO has given you the following directive:
 {directive}
 
@@ -189,7 +189,7 @@ Output format:
 """
     else:
         return f"""\
-あなたは{genre}専門の音楽プロデューサー兼クリエイティブディレクターです。
+あなたは龍姫（たつき）、{genre}専門の音楽プロデューサー兼クリエイティブディレクターです。
 CEOからの指示:
 {directive}
 
@@ -216,7 +216,7 @@ CEOからの指示:
 def _writer_system(genre: str, language: str, directive: str) -> str:
     if language == "en":
         return f"""\
-You are a professional lyricist specializing in {genre}.
+You are レイ, a professional lyricist specializing in {genre}.
 The CEO has given you the following directive:
 {directive}
 
@@ -231,7 +231,7 @@ Guidelines:
 """
     else:
         return f"""\
-あなたは{genre}専門のプロの作詞家です。
+あなたはレイ、{genre}専門のプロの作詞家です。
 CEOからの指示:
 {directive}
 
@@ -249,7 +249,7 @@ CEOからの指示:
 def _review_system(genre: str, language: str, directive: str) -> str:
     if language == "en":
         return f"""\
-You are a veteran music director with deep expertise in {genre}.
+You are ルキ, a veteran music director with deep expertise in {genre}.
 The CEO has given you the following directive:
 {directive}
 
@@ -274,7 +274,7 @@ Output:
 """
     else:
         return f"""\
-あなたは{genre}に精通したベテランの音楽ディレクターです。
+あなたはルキ、{genre}に精通したベテランの音楽ディレクターです。
 CEOからの指示:
 {directive}
 
@@ -336,7 +336,7 @@ def ceo_agent(user_request: str) -> dict:
 
 
 def theme_agent(user_request: str, genre: str, language: str, directive: str) -> str:
-    label = "🎵 [Theme Agent]" if language == "en" else "🎵 [テーマエージェント]"
+    label = "🎵 [龍姫 / Theme Agent]" if language == "en" else "🎵 [龍姫 / テーマエージェント]"
     msg = "Building world and theme..." if language == "en" else "世界観を構築中..."
     print(f"\n{label} {msg}\n")
     prompt = (
@@ -350,7 +350,7 @@ def theme_agent(user_request: str, genre: str, language: str, directive: str) ->
 def lyric_writer_agent(
     user_request: str, theme_brief: str, genre: str, language: str, directive: str
 ) -> str:
-    label = "✍️  [Lyric Writer]" if language == "en" else "✍️  [作詞エージェント]"
+    label = "✍️  [レイ / Lyric Writer]" if language == "en" else "✍️  [レイ / 作詞エージェント]"
     msg = "Writing lyrics..." if language == "en" else "歌詞を書いています..."
     print(f"\n{label} {msg}\n")
     prompt = (
@@ -369,7 +369,7 @@ def review_agent(
     user_request: str, theme_brief: str, draft_lyrics: str,
     genre: str, language: str, directive: str
 ) -> str:
-    label = "🔍 [Review Agent]" if language == "en" else "🔍 [レビューエージェント]"
+    label = "🔍 [ルキ / Review Agent]" if language == "en" else "🔍 [ルキ / レビューエージェント]"
     msg = "Reviewing lyrics..." if language == "en" else "歌詞をレビュー中..."
     print(f"\n{label} {msg}\n")
     prompt = (

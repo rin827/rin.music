@@ -1,40 +1,70 @@
 """
 rin.music — 作詞チームエージェント
 
-4つのエージェントが協力して歌詞を作成します:
-  0. CEOエージェント      : リクエストを戦略分析し、制作指令書を作成・チームを指揮
-  1. テーマエージェント   : テーマ・世界観・感情を分析・展開
-  2. 作詞エージェント    : 歌詞を執筆
-  3. レビューエージェント : 歌詞をレビュー・改善提案
+メンバー:
+  👔 yasu       : CEO — 戦略・指揮
+  🎵 龍姫（たつき）: テーマエージェント
+  ✍️  レイ        : 作詞エージェント
+  🔍 ルキ        : レビューエージェント
 
-機能:
-  - 日本語 / English 歌詞対応 (CEOが自動判断)
-  - ジャンルをCEOが自動決定 (手動オーバーライド可)
-  - 歌詞をファイルに保存
+使い方:
+  python lyrics_team.py       チャットモードで起動
+  「おつ～」                   会話を保存して終了
+  「よろ～」                   前回の会話を読み込んで続きから
 """
 
 import os
 import re
+import json
 import datetime
 import anthropic
+from pathlib import Path
 
-MODEL = "claude-opus-4-6"
-client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+MODEL   = "claude-opus-4-6"
+client  = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 SUPPORTED_LANGUAGES = {"ja": "日本語", "en": "English"}
+
+SAVE_KEYWORD = "おつ～"
+LOAD_KEYWORD = "よろ～"
+SESSION_DIR  = Path("sessions")
+SESSION_FILE = SESSION_DIR / "latest.json"
+
+# ---------------------------------------------------------------------------
+# セッション管理
+# ---------------------------------------------------------------------------
+
+def save_session(messages: list) -> str:
+    SESSION_DIR.mkdir(exist_ok=True)
+    data = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "messages":  messages,
+    }
+    SESSION_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return str(SESSION_FILE)
+
+
+def load_session() -> list:
+    if not SESSION_FILE.exists():
+        return []
+    data = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
+    return data.get("messages", [])
+
 
 # ---------------------------------------------------------------------------
 # ユーティリティ
 # ---------------------------------------------------------------------------
 
-def _stream_response(system: str, user: str) -> str:
+def _stream_response(system: str, messages: list, max_tokens: int = 4096) -> str:
     """ストリーミングでAPIを呼び出し、完全なテキストを返す。"""
     with client.messages.stream(
         model=MODEL,
-        max_tokens=4096,
+        max_tokens=max_tokens,
         thinking={"type": "adaptive"},
         system=system,
-        messages=[{"role": "user", "content": user}],
+        messages=messages,
     ) as stream:
         chunks = []
         for event in stream:
@@ -49,79 +79,80 @@ def _stream_response(system: str, user: str) -> str:
 
 
 def _safe_filename(text: str, max_len: int = 40) -> str:
-    """テキストからファイル名に使える安全な文字列を生成する。"""
     cleaned = re.sub(r'[^\w\s\-]', '', text, flags=re.UNICODE)
     cleaned = re.sub(r'\s+', '_', cleaned.strip())
     return cleaned[:max_len] if cleaned else "lyrics"
 
 
 def _parse_field(text: str, key: str, default: str = "") -> str:
-    """制作指令書から特定フィールドの値を抽出する。"""
-    pattern = rf'\*\*{re.escape(key)}\*\*\s*[:\uff1a]\s*(.+)'
-    m = re.search(pattern, text)
+    m = re.search(rf'\*\*{re.escape(key)}\*\*\s*[:\uff1a]\s*(.+)', text)
     return m.group(1).strip() if m else default
 
 
-def save_lyrics(result: dict, request: str) -> str:
-    """
-    歌詞と制作指令書をMarkdownファイルに保存する。
-
-    Returns:
-        保存したファイルのパス
-    """
-    output_dir = "lyrics"
-    os.makedirs(output_dir, exist_ok=True)
-
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    slug = _safe_filename(request)
-    filename = f"{output_dir}/{timestamp}_{slug}.md"
-
-    mandate = result.get("mandate", "")
-    genre = result.get("genre", "")
-    language = result.get("language", "ja")
-    lang_label = SUPPORTED_LANGUAGES.get(language, language)
-
-    content = f"""\
-# 歌詞 / Lyrics
-
-**リクエスト / Request:** {request}
-**ジャンル / Genre:** {genre}
-**言語 / Language:** {lang_label}
-**作成日時:** {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-
----
-
-## CEO 制作指令書 / Production Mandate
-
-{mandate}
-
----
-
-## テーマ資料 / Theme Brief
-
-{result['theme']}
-
----
-
-## 初稿 / Draft
-
-{result['draft']}
-
----
-
-## レビュー & 最終版 / Review & Final
-
-{result['final']}
-"""
-
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write(content)
-
-    return filename
+def _extract_directive(mandate: str, agent_name: str) -> str:
+    pattern = rf'### Directive[^#]*?{re.escape(agent_name)}.*?\n(.*?)(?=###|\Z)'
+    m = re.search(pattern, mandate, re.DOTALL | re.IGNORECASE)
+    return m.group(1).strip() if m else ""
 
 
 # ---------------------------------------------------------------------------
-# システムプロンプト
+# yasu — チャットシステムプロンプト
+# ---------------------------------------------------------------------------
+
+YASU_CHAT_SYSTEM = """\
+You are yasu, the CEO of rin.music, a creative music production company.
+You're having a natural, casual conversation with your client about their music.
+
+Your team:
+- 龍姫（たつき）: Theme Agent — develops themes, worldview, emotional arcs
+- レイ: Lyric Writer — writes the actual lyrics
+- ルキ: Review Agent — critiques and refines lyrics
+
+Personality: creative, enthusiastic, concise. You speak casually but with professional instincts.
+Always reply in the same language the user uses (Japanese or English).
+
+When the user wants lyrics ACTUALLY CREATED (not just discussed), \
+output this line at the very end of your response — nothing after it:
+ACTION: CREATE_LYRICS | <one-line summary of what to create>
+
+Only add the ACTION line when you are ready to start production. \
+Do NOT add it for conceptual discussions or questions.
+"""
+
+
+def _chat_turn(messages: list) -> str:
+    """yasuとのチャットターン（thinking なし・短めのトークン）。"""
+    with client.messages.stream(
+        model=MODEL,
+        max_tokens=1024,
+        system=YASU_CHAT_SYSTEM,
+        messages=messages,
+    ) as stream:
+        chunks = []
+        for event in stream:
+            if (
+                event.type == "content_block_delta"
+                and event.delta.type == "text_delta"
+            ):
+                print(event.delta.text, end="", flush=True)
+                chunks.append(event.delta.text)
+        print()
+        return "".join(chunks)
+
+
+def _parse_action(response: str) -> str | None:
+    """ACTION: CREATE_LYRICS | <request> を抽出する。なければ None。"""
+    m = re.search(r'ACTION:\s*CREATE_LYRICS\s*\|\s*(.+)', response)
+    return m.group(1).strip() if m else None
+
+
+def _visible_response(response: str) -> str:
+    """ACTION行をユーザーに見せないよう除去したテキスト。"""
+    return re.sub(r'\nACTION:\s*CREATE_LYRICS\s*\|.+', '', response).rstrip()
+
+
+# ---------------------------------------------------------------------------
+# 作詞パイプライン（CEO→チーム）
 # ---------------------------------------------------------------------------
 
 CEO_SYSTEM = """\
@@ -169,47 +200,26 @@ You are 龍姫 (Tatsuki), a music producer and creative director specializing in
 The CEO has given you the following directive:
 {directive}
 
-Analyze the request and develop the theme, world, emotions, and structure for the lyrics.
+Develop the theme, world, emotions, and structure for the lyrics.
 
 Output format:
 ## Theme
-(Core theme in 1-2 sentences)
-
 ## World & Imagery
-(Scene and imagery to portray)
-
 ## Emotional Arc
-(How emotions evolve throughout the song)
-
 ## Keywords & Phrases
-(Candidate images and phrases for the lyrics)
-
 ## Structure Suggestion
-(Role of Verse / Pre-Chorus / Chorus / Bridge etc.)
 """
-    else:
-        return f"""\
+    return f"""\
 あなたは龍姫（たつき）、{genre}専門の音楽プロデューサー兼クリエイティブディレクターです。
 CEOからの指示:
 {directive}
 
-リクエストをもとに、歌詞のテーマ・世界観・感情・構成を深く掘り下げてください。
-
 出力形式:
 ## テーマ
-(コアとなるテーマを1〜2文で)
-
 ## 世界観・情景
-(どんな場面・情景を描くか)
-
 ## 感情の流れ
-(曲を通じて感情がどう変化するか)
-
 ## キーワード
-(歌詞に使いたいイメージやフレーズの候補)
-
 ## 構成提案
-(Aメロ・Bメロ・サビ・Cメロなどの役割)
 """
 
 
@@ -220,29 +230,14 @@ You are レイ, a professional lyricist specializing in {genre}.
 The CEO has given you the following directive:
 {directive}
 
-Write complete, polished English lyrics based on the theme brief provided.
-
-Guidelines:
-- Choose words that convey emotion naturally
-- Craft lines that feel good to sing (rhythm, syllable flow)
-- Use vivid metaphors and imagery
-- Label each section clearly (Verse 1, Pre-Chorus, Chorus, Verse 2, Bridge, Outro, etc.)
-- Ensure hooks are memorable and genre-appropriate for {genre}
+Write complete, polished English lyrics. Label each section clearly.
 """
-    else:
-        return f"""\
+    return f"""\
 あなたはレイ、{genre}専門のプロの作詞家です。
 CEOからの指示:
 {directive}
 
-テーマエージェントが作成したテーマ資料をもとに、完成度の高い日本語の歌詞を執筆してください。
-
-ガイドライン:
-- 感情が自然に伝わる言葉を選ぶ
-- 歌として口ずさんだとき気持ちよいリズム感を意識する
-- 比喩・情景描写を効果的に使う
-- Aメロ・Bメロ・サビ・(Cメロ) などの構成を明示する
-- {genre}らしいフレーズ・言葉選びを意識する
+完成度の高い日本語の歌詞を執筆してください。Aメロ・Bメロ・サビなど構成を明示すること。
 """
 
 
@@ -253,214 +248,206 @@ You are ルキ, a veteran music director with deep expertise in {genre}.
 The CEO has given you the following directive:
 {directive}
 
-Review and improve the draft lyrics provided.
-
-Evaluation criteria:
-1. Consistency with the theme and CEO mandate
-2. Lyrical rhythm and flow
-3. Emotional intensity and authenticity
-4. Memorable hooks and phrasing
-5. Genre fit for {genre}
-
 Output:
 ## Overall Assessment
-(3-4 sentences)
-
 ## Points to Improve
-(bullet points)
-
 ## Revised Lyrics
-(complete revised lyrics)
 """
-    else:
-        return f"""\
+    return f"""\
 あなたはルキ、{genre}に精通したベテランの音楽ディレクターです。
 CEOからの指示:
 {directive}
 
-作詞エージェントが書いた歌詞を批評・改善してください。
-
-評価観点:
-1. テーマ・CEO指令との一貫性
-2. 言葉のリズム・流れ
-3. 感情の強度と自然さ
-4. 印象的なフレーズ・フック
-5. {genre}としての雰囲気・適合度
-
 出力:
 ## 総評
-(3〜4文)
-
 ## 改善ポイント
-(箇条書き)
-
 ## 改善版歌詞
-(修正済みの完全な歌詞)
 """
 
 
-# ---------------------------------------------------------------------------
-# エージェント
-# ---------------------------------------------------------------------------
+def save_lyrics_file(result: dict, request: str) -> str:
+    output_dir = Path("lyrics")
+    output_dir.mkdir(exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    slug = _safe_filename(request)
+    filename = output_dir / f"{timestamp}_{slug}.md"
+    lang_label = SUPPORTED_LANGUAGES.get(result.get("language", "ja"), "日本語")
+    content = f"""\
+# 歌詞 / Lyrics
 
-def _extract_directive(mandate: str, agent_name: str) -> str:
-    """制作指令書から特定エージェントへの指示を抽出する。"""
-    pattern = rf'### Directive[^#]*?{re.escape(agent_name)}.*?\n(.*?)(?=###|\Z)'
-    m = re.search(pattern, mandate, re.DOTALL | re.IGNORECASE)
-    return m.group(1).strip() if m else ""
+**リクエスト:** {request}
+**ジャンル:** {result.get('genre', '')}
+**言語:** {lang_label}
+**作成日時:** {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+---
+
+## CEO 制作指令書
+
+{result['mandate']}
+
+---
+
+## テーマ資料
+
+{result['theme']}
+
+---
+
+## 初稿
+
+{result['draft']}
+
+---
+
+## レビュー & 最終版
+
+{result['final']}
+"""
+    filename.write_text(content, encoding="utf-8")
+    return str(filename)
 
 
-def ceo_agent(user_request: str) -> dict:
-    """
-    CEOエージェント: 戦略分析と制作指令書の作成。
-
-    Returns:
-        {
-            "mandate":  str,  # 制作指令書のフルテキスト
-            "genre":    str,  # 決定したジャンル
-            "language": str,  # 決定した言語 ("ja" or "en")
-            "title":    str,  # タイトル案
-        }
-    """
-    print("\n👔 [yasu / CEO] 戦略を策定中 / Analyzing request...\n")
-    mandate = _stream_response(CEO_SYSTEM, f"User request: {user_request}")
+def create_lyrics(user_request: str) -> dict:
+    """CEO→チームエージェントの作詞パイプライン。"""
+    print("\n👔 [yasu / CEO] 制作指令書を作成中...\n")
+    mandate = _stream_response(CEO_SYSTEM, [{"role": "user", "content": user_request}])
 
     genre    = _parse_field(mandate, "Genre",         default="J-POP Ballad")
     language = _parse_field(mandate, "Language",      default="ja").strip().lower()
     title    = _parse_field(mandate, "Title Concept", default="Untitled")
-
     if language not in SUPPORTED_LANGUAGES:
         language = "ja"
 
-    return {"mandate": mandate, "genre": genre, "language": language, "title": title}
+    lang_label = SUPPORTED_LANGUAGES[language]
+    print(f"\n   📋 Genre: {genre} | Language: {lang_label} | Title: {title}")
 
-
-def theme_agent(user_request: str, genre: str, language: str, directive: str) -> str:
-    label = "🎵 [龍姫 / Theme Agent]" if language == "en" else "🎵 [龍姫 / テーマエージェント]"
-    msg = "Building world and theme..." if language == "en" else "世界観を構築中..."
-    print(f"\n{label} {msg}\n")
-    prompt = (
-        f"Genre: {genre}\n\nRequest: {user_request}"
-        if language == "en"
-        else f"ジャンル: {genre}\n\nリクエスト: {user_request}"
-    )
-    return _stream_response(_theme_system(genre, language, directive), prompt)
-
-
-def lyric_writer_agent(
-    user_request: str, theme_brief: str, genre: str, language: str, directive: str
-) -> str:
-    label = "✍️  [レイ / Lyric Writer]" if language == "en" else "✍️  [レイ / 作詞エージェント]"
-    msg = "Writing lyrics..." if language == "en" else "歌詞を書いています..."
-    print(f"\n{label} {msg}\n")
-    prompt = (
-        f"Genre: {genre}\nRequest: {user_request}\n\nTheme Brief:\n{theme_brief}\n\n"
-        "Write the full lyrics based on the above."
-        if language == "en"
-        else (
-            f"ジャンル: {genre}\nリクエスト: {user_request}\n\n"
-            f"テーマ資料:\n{theme_brief}\n\n上記をもとに歌詞を書いてください。"
-        )
-    )
-    return _stream_response(_writer_system(genre, language, directive), prompt)
-
-
-def review_agent(
-    user_request: str, theme_brief: str, draft_lyrics: str,
-    genre: str, language: str, directive: str
-) -> str:
-    label = "🔍 [ルキ / Review Agent]" if language == "en" else "🔍 [ルキ / レビューエージェント]"
-    msg = "Reviewing lyrics..." if language == "en" else "歌詞をレビュー中..."
-    print(f"\n{label} {msg}\n")
-    prompt = (
-        f"Genre: {genre}\nOriginal Request: {user_request}\n\n"
-        f"Theme Brief:\n{theme_brief}\n\nDraft Lyrics:\n{draft_lyrics}\n\n"
-        "Critique and provide an improved version."
-        if language == "en"
-        else (
-            f"ジャンル: {genre}\n元リクエスト: {user_request}\n\n"
-            f"テーマ資料:\n{theme_brief}\n\n歌詞草稿:\n{draft_lyrics}\n\n"
-            "この歌詞を批評し、改善版を提供してください。"
-        )
-    )
-    return _stream_response(_review_system(genre, language, directive), prompt)
-
-
-# ---------------------------------------------------------------------------
-# オーケストレーター
-# ---------------------------------------------------------------------------
-
-def create_lyrics(user_request: str) -> dict:
-    """
-    CEOが戦略を立て、3エージェントを指揮して歌詞を作成・保存する。
-
-    Args:
-        user_request: 曲のイメージ・リクエスト (ジャンル・言語はCEOが自動決定)
-
-    Returns:
-        {"mandate": str, "genre": str, "language": str, "title": str,
-         "theme": str, "draft": str, "final": str, "saved_to": str}
-    """
-    print("=" * 60)
-    print("🎼 rin.music — Lyrics Team Agent")
-    print("=" * 60)
-
-    # Step 0: CEO が戦略決定
-    ceo = ceo_agent(user_request)
-    genre    = ceo["genre"]
-    language = ceo["language"]
-    mandate  = ceo["mandate"]
-
-    lang_label = SUPPORTED_LANGUAGES.get(language, language)
-    print(f"\n   📋 Genre: {genre} | Language: {lang_label} | Title: {ceo['title']}")
-
-    # Step 1–3: チームエージェントが制作
     theme_dir  = _extract_directive(mandate, "Theme Agent")
     writer_dir = _extract_directive(mandate, "Lyric Writer")
     review_dir = _extract_directive(mandate, "Review Agent")
 
-    theme_brief  = theme_agent(user_request, genre, language, theme_dir)
-    draft_lyrics = lyric_writer_agent(user_request, theme_brief, genre, language, writer_dir)
-    final_review = review_agent(user_request, theme_brief, draft_lyrics, genre, language, review_dir)
+    prompt_ja = f"ジャンル: {genre}\nリクエスト: {user_request}"
+    prompt_en = f"Genre: {genre}\nRequest: {user_request}"
+    base_prompt = prompt_en if language == "en" else prompt_ja
 
-    result = {**ceo, "theme": theme_brief, "draft": draft_lyrics, "final": final_review}
+    print(f"\n🎵 [龍姫 / テーマエージェント] 世界観を構築中...\n")
+    theme_brief = _stream_response(
+        _theme_system(genre, language, theme_dir),
+        [{"role": "user", "content": base_prompt}],
+    )
 
-    saved_path = save_lyrics(result, user_request)
-    result["saved_to"] = saved_path
+    print(f"\n✍️  [レイ / 作詞エージェント] 歌詞を書いています...\n")
+    writer_prompt = base_prompt + f"\n\nTheme Brief:\n{theme_brief}" \
+        if language == "en" else base_prompt + f"\n\nテーマ資料:\n{theme_brief}"
+    draft_lyrics = _stream_response(
+        _writer_system(genre, language, writer_dir),
+        [{"role": "user", "content": writer_prompt}],
+    )
 
-    print("\n" + "=" * 60)
-    print(f"✅ 完成！  Saved → {saved_path}")
-    print("=" * 60)
+    print(f"\n🔍 [ルキ / レビューエージェント] 歌詞をレビュー中...\n")
+    review_prompt = (
+        f"Genre: {genre}\nRequest: {user_request}\n\n"
+        f"Theme:\n{theme_brief}\n\nDraft:\n{draft_lyrics}"
+        if language == "en" else
+        f"ジャンル: {genre}\nリクエスト: {user_request}\n\n"
+        f"テーマ資料:\n{theme_brief}\n\n歌詞草稿:\n{draft_lyrics}"
+    )
+    final_review = _stream_response(
+        _review_system(genre, language, review_dir),
+        [{"role": "user", "content": review_prompt}],
+    )
 
+    result = {
+        "mandate": mandate, "genre": genre, "language": language, "title": title,
+        "theme": theme_brief, "draft": draft_lyrics, "final": final_review,
+    }
+    saved = save_lyrics_file(result, user_request)
+    result["saved_to"] = saved
+
+    print(f"\n✅ 完成！  Saved → {saved}")
     return result
 
 
 # ---------------------------------------------------------------------------
-# CLI エントリーポイント
+# チャット REPL
 # ---------------------------------------------------------------------------
 
-def _ask(prompt: str, default: str = "") -> str:
-    value = input(prompt).strip()
-    return value if value else default
+def run_chat() -> None:
+    print("=" * 60)
+    print("🎼 rin.music")
+    print(f'   「{SAVE_KEYWORD}」で保存  「{LOAD_KEYWORD}」で続きから')
+    print("=" * 60)
 
+    messages: list = []
+
+    # 開幕挨拶
+    print("\n👔 yasu: ", end="", flush=True)
+    greeting = _chat_turn([{"role": "user", "content": "セッション開始。軽く挨拶して。"}])
+    messages.append({"role": "user",      "content": "セッション開始"})
+    messages.append({"role": "assistant", "content": greeting})
+
+    while True:
+        try:
+            user_input = input("\nあなた: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n終了します。")
+            break
+
+        if not user_input:
+            continue
+
+        # ── 保存 ──
+        if user_input == SAVE_KEYWORD:
+            path = save_session(messages)
+            print(f"\n💾 会話を保存しました → {path}")
+            print("👔 yasu: またね！お疲れ～")
+            break
+
+        # ── 読み込み ──
+        if user_input == LOAD_KEYWORD:
+            loaded = load_session()
+            if not loaded:
+                print("📂 保存された会話が見つかりませんでした。")
+                continue
+            messages = loaded
+            turns = sum(1 for m in messages if m["role"] == "user")
+            print(f"\n📂 前回の会話を読み込みました（{turns}ターン）\n")
+            print("👔 yasu: ", end="", flush=True)
+            resume_resp = _chat_turn(
+                messages + [{"role": "user", "content":
+                    "前回の会話の続きです。前回どんな話をしていたか簡単に振り返ってから続けて。"}]
+            )
+            messages.append({"role": "user",      "content": LOAD_KEYWORD})
+            messages.append({"role": "assistant", "content": resume_resp})
+            continue
+
+        # ── 通常会話 ──
+        messages.append({"role": "user", "content": user_input})
+        print("\n👔 yasu: ", end="", flush=True)
+        response = _chat_turn(messages)
+
+        action_request = _parse_action(response)
+        visible = _visible_response(response)
+
+        messages.append({"role": "assistant", "content": visible})
+
+        # ── 作詞アクション ──
+        if action_request:
+            print("\n" + "─" * 60)
+            result = create_lyrics(action_request)
+            print("─" * 60)
+            # 作詞完了をチャット履歴に記録
+            summary = (
+                f"[作詞完了] タイトル: {result['title']} / "
+                f"ジャンル: {result['genre']} / 保存先: {result['saved_to']}"
+            )
+            messages.append({"role": "user",      "content": "[作詞完了の報告]"})
+            messages.append({"role": "assistant", "content": summary})
+
+
+# ---------------------------------------------------------------------------
+# エントリーポイント
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    import sys
-
-    print("=" * 60)
-    print("🎼 rin.music — Lyrics Team Agent")
-    print("   (ジャンル・言語はCEOが自動決定します)")
-    print("=" * 60)
-
-    if len(sys.argv) > 1:
-        request = " ".join(sys.argv[1:])
-    else:
-        request = _ask(
-            "\n曲のイメージを自由に入力してください\n"
-            "  例: 夏の終わりの切ない恋愛\n"
-            "  例: An upbeat song about chasing dreams in a big city\n"
-            "> ",
-            "夏の終わり、遠距離恋愛、会いたい気持ち",
-        )
-
-    create_lyrics(request)
+    run_chat()

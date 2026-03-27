@@ -233,7 +233,7 @@ def respond_music(user_input: str, chat_history: list, messages: list):
 
     # ── 音楽制作パイプライン ──
     if action:
-        new_chat = new_chat + [(None, "🎸 **ソウルスミス・ハーモニー・リズム・プロデューサーが制作を開始します！**\n\nしばらくお待ちください...")]
+        new_chat = new_chat + [(None, "🎸 **蒼牙・澪・颯・凛が制作を開始します！**\n\nしばらくお待ちください...")]
         yield "", new_chat, new_msgs
 
         result = create_music(action)
@@ -336,7 +336,7 @@ with gr.Blocks(title="rin.music", theme=gr.themes.Soft()) as demo:
                 music_send = gr.Button("送信", scale=1, variant="primary", min_width=60)
 
             gr.Markdown(
-                "<small>💡 チームメンバー: 👔 yasu (CEO) ／ 🎸 ソウルスミス (サウンドディレクター) ／ 🎹 ハーモニー (コード進行) ／ 🥁 リズム (アレンジ) ／ 🎚️ プロデューサー (サウンドデザイン)</small>"
+                "<small>💡 チームメンバー: 👔 yasu (CEO) ／ 🎸 蒼牙（そうが）(サウンドディレクター) ／ 🎹 澪（みお）(コード進行) ／ 🥁 颯（はやて）(アレンジ) ／ 🎚️ 凛（りん）(サウンドデザイン)</small>"
             )
 
             music_state = gr.State([])

@@ -3,10 +3,10 @@ rin.music — 音楽制作チームエージェント
 
 メンバー:
   👔 yasu         : CEO — 戦略・指揮
-  🎸 ソウルスミス  : サウンドディレクター — 全体ビジョン・ジャンル設計
-  🎹 ハーモニー    : コード進行エージェント
-  🥁 リズム        : アレンジメントエージェント
-  🎚️  プロデューサー : サウンドデザイン & プロダクションノート
+  🎸 蒼牙（そうが）: サウンドディレクター — 全体ビジョン・ジャンル設計
+  🎹 澪（みお）   : コード進行エージェント
+  🥁 颯（はやて） : アレンジメントエージェント
+  🎚️  凛（りん）   : サウンドデザイン & プロダクションノート
 
 使い方:
   python music_team.py       チャットモードで起動
@@ -107,10 +107,10 @@ You're having a natural, casual conversation with your client about the music th
 You focus on the MUSICAL side: genre, mood, chord feel, rhythm, arrangement, instrumentation.
 
 Your team:
-- ソウルスミス: Sound Director — overall musical vision, genre design, sonic identity
-- ハーモニー: Chord/Harmony Agent — chord progressions, key, harmonic color
-- リズム: Arrangement Agent — rhythm, tempo, song structure, instrumentation
-- プロデューサー: Sound Design & Production Notes — final production advice
+- 蒼牙 (Souga): Sound Director — overall musical vision, genre design, sonic identity
+- 澪 (Mio): Chord/Harmony Agent — chord progressions, key, harmonic color
+- 颯 (Hayate): Arrangement Agent — rhythm, tempo, song structure, instrumentation
+- 凛 (Rin): Sound Design & Production Notes — final production advice
 
 Personality: creative, enthusiastic, concise. You speak casually but with professional instincts.
 Always reply in the same language the user uses (Japanese or English).
@@ -203,7 +203,7 @@ Output your mandate in the following exact format (fill in every field):
 def _sound_director_system(genre: str, language: str, key: str, bpm: str, directive: str) -> str:
     if language == "en":
         return f"""\
-You are ソウルスミス, a visionary Sound Director specializing in {genre}.
+You are 蒼牙 (Souga), a visionary Sound Director specializing in {genre}.
 Key: {key} | BPM: {bpm}
 CEO directive: {directive}
 
@@ -217,7 +217,7 @@ Output format:
 ## Production Style Notes
 """
     return f"""\
-あなたはソウルスミス、{genre}専門のビジョナリー・サウンドディレクターです。
+あなたは蒼牙（そうが）、{genre}専門のビジョナリー・サウンドディレクターです。
 キー: {key} | BPM: {bpm}
 CEOからの指示: {directive}
 
@@ -235,7 +235,7 @@ CEOからの指示: {directive}
 def _chord_agent_system(genre: str, language: str, key: str, directive: str) -> str:
     if language == "en":
         return f"""\
-You are ハーモニー, a harmony and chord specialist for {genre}.
+You are 澪 (Mio), a harmony and chord specialist for {genre}.
 Key: {key}
 CEO directive: {directive}
 
@@ -253,7 +253,7 @@ Output format:
 ## Harmonic Color Notes
 """
     return f"""\
-あなたはハーモニー、{genre}専門のハーモニー＆コードスペシャリストです。
+あなたは澪（みお）、{genre}専門のハーモニー＆コードスペシャリストです。
 キー: {key}
 CEOからの指示: {directive}
 
@@ -275,7 +275,7 @@ CEOからの指示: {directive}
 def _arrangement_agent_system(genre: str, language: str, bpm: str, directive: str) -> str:
     if language == "en":
         return f"""\
-You are リズム, an arrangement specialist for {genre}.
+You are 颯 (Hayate), an arrangement specialist for {genre}.
 BPM: {bpm}
 CEO directive: {directive}
 
@@ -291,7 +291,7 @@ Output format:
 ## Transition & Fill Ideas
 """
     return f"""\
-あなたはリズム、{genre}専門のアレンジメントスペシャリストです。
+あなたは颯（はやて）、{genre}専門のアレンジメントスペシャリストです。
 BPM: {bpm}
 CEOからの指示: {directive}
 
@@ -311,7 +311,7 @@ CEOからの指示: {directive}
 def _producer_system(genre: str, language: str, directive: str) -> str:
     if language == "en":
         return f"""\
-You are プロデューサー, a veteran music producer specializing in {genre}.
+You are 凛 (Rin), a veteran music producer specializing in {genre}.
 CEO directive: {directive}
 
 Review the sound vision, chords, and arrangement provided, then write a complete production guide.
@@ -325,7 +325,7 @@ Output format:
 ## Final Production Notes
 """
     return f"""\
-あなたはプロデューサー、{genre}に精通したベテラン音楽プロデューサーです。
+あなたは凛（りん）、{genre}に精通したベテラン音楽プロデューサーです。
 CEOからの指示: {directive}
 
 提供されたサウンドビジョン・コード・アレンジメントをレビューし、完全なプロダクションガイドを作成してください。
@@ -422,14 +422,14 @@ def create_music(user_request: str) -> dict:
     )
 
     # ── ソウルスミス ──
-    print(f"\n🎸 [ソウルスミス / サウンドディレクター] サウンドビジョンを構築中...\n")
+    print(f"\n🎸 [蒼牙 / サウンドディレクター] サウンドビジョンを構築中...\n")
     sound_direction = _stream_response(
         _sound_director_system(genre, language, key, bpm, dir_sound),
         [{"role": "user", "content": base_prompt}],
     )
 
     # ── ハーモニー ──
-    print(f"\n🎹 [ハーモニー / コード進行エージェント] コード進行を設計中...\n")
+    print(f"\n🎹 [澪 / コード進行エージェント] コード進行を設計中...\n")
     chord_prompt = (
         base_prompt + f"\n\nSound Vision:\n{sound_direction}"
         if language == "en" else
@@ -441,7 +441,7 @@ def create_music(user_request: str) -> dict:
     )
 
     # ── リズム ──
-    print(f"\n🥁 [リズム / アレンジメントエージェント] アレンジメントを構成中...\n")
+    print(f"\n🥁 [颯 / アレンジメントエージェント] アレンジメントを構成中...\n")
     arr_prompt = (
         base_prompt + f"\n\nSound Vision:\n{sound_direction}\n\nChords:\n{chords}"
         if language == "en" else
@@ -453,7 +453,7 @@ def create_music(user_request: str) -> dict:
     )
 
     # ── プロデューサー ──
-    print(f"\n🎚️  [プロデューサー / サウンドデザイン] プロダクションガイドを作成中...\n")
+    print(f"\n🎚️  [凛 / サウンドデザイン] プロダクションガイドを作成中...\n")
     prod_prompt = (
         base_prompt
         + f"\n\nSound Vision:\n{sound_direction}"

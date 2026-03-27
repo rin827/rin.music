@@ -22,7 +22,6 @@ from lyrics_team import (
     client,
     MODEL,
 )
-import music_team as mt
 
 
 # ---------------------------------------------------------------------------
@@ -145,195 +144,46 @@ def respond(user_input: str, chat_history: list, messages: list):
 
 
 # ---------------------------------------------------------------------------
-# 音楽制作チーム — ストリーミング & 応答
-# ---------------------------------------------------------------------------
-
-def _stream_music_yasu(messages: list):
-    with client.messages.stream(
-        model=MODEL,
-        max_tokens=1024,
-        system=mt.YASU_MUSIC_CHAT_SYSTEM,
-        messages=messages,
-    ) as stream:
-        for event in stream:
-            if (
-                event.type == "content_block_delta"
-                and event.delta.type == "text_delta"
-            ):
-                yield event.delta.text
-
-
-def _get_music_greeting() -> tuple[list, list]:
-    greeting = "".join(_stream_music_yasu([
-        {"role": "user", "content": "セッション開始。音楽制作チームのCEOとして軽く挨拶して。短めに。"},
-    ]))
-    chat = [(None, greeting)]
-    msgs = [
-        {"role": "user",      "content": "セッション開始"},
-        {"role": "assistant", "content": greeting},
-    ]
-    return chat, msgs
-
-
-def respond_music(user_input: str, chat_history: list, messages: list):
-    if not user_input.strip():
-        yield "", chat_history, messages
-        return
-
-    if user_input == SAVE_KEYWORD:
-        path = mt.save_session(messages)
-        reply = f"💾 会話を保存しました！\n\n`{path}`\n\nまたね～ 👋"
-        yield "", chat_history + [(user_input, reply)], messages
-        return
-
-    if user_input == LOAD_KEYWORD:
-        loaded = mt.load_session()
-        if not loaded:
-            yield "", chat_history + [(user_input, "📂 保存された会話が見つかりません。")], messages
-            return
-
-        skip = {"セッション開始", LOAD_KEYWORD, "[制作完了の報告]"}
-        new_chat = [
-            (m["content"], loaded[i + 1]["content"] if i + 1 < len(loaded) else "")
-            for i, m in enumerate(loaded)
-            if m["role"] == "user" and m["content"] not in skip and i % 2 == 0
-        ]
-
-        resume_prompt = loaded + [{"role": "user", "content":
-            "前回の会話の続きです。前回どんな話をしていたか一言で振り返ってから続けて。"}]
-        new_chat.append((LOAD_KEYWORD, ""))
-        resume_resp = ""
-        for chunk in _stream_music_yasu(resume_prompt):
-            resume_resp += chunk
-            new_chat[-1] = (LOAD_KEYWORD, resume_resp)
-            yield "", new_chat, loaded
-
-        updated = loaded + [
-            {"role": "user",      "content": LOAD_KEYWORD},
-            {"role": "assistant", "content": resume_resp},
-        ]
-        yield "", new_chat, updated
-        return
-
-    new_msgs = messages + [{"role": "user", "content": user_input}]
-    new_chat  = chat_history + [(user_input, "")]
-    response  = ""
-
-    for chunk in _stream_music_yasu(new_msgs):
-        response += chunk
-        new_chat[-1] = (user_input, response)
-        yield "", new_chat, messages
-
-    action  = mt._parse_action(response)
-    visible = mt._visible_response(response)
-    new_chat[-1] = (user_input, visible)
-    new_msgs = new_msgs + [{"role": "assistant", "content": visible}]
-
-    if action:
-        new_chat = new_chat + [(None, "🎼 **ハル・ソラ・カイが音楽制作を開始します！**\n\nしばらくお待ちください...")]
-        yield "", new_chat, new_msgs
-
-        result = mt.create_music(action)
-
-        music_reply = (
-            f"✅ **音楽制作資料が完成しました！**\n\n"
-            f"**タイトル:** {result['title']}\n"
-            f"**ジャンル:** {result['genre']}\n"
-            f"**保存先:** `{result['saved_to']}`\n\n---\n\n"
-            f"{result['production']}"
-        )
-        new_chat[-1] = (None, music_reply)
-        summary = f"[制作完了] {result['title']} / {result['genre']} / {result['saved_to']}"
-        new_msgs = new_msgs + [
-            {"role": "user",      "content": "[制作完了の報告]"},
-            {"role": "assistant", "content": summary},
-        ]
-        yield "", new_chat, new_msgs
-        return
-
-    yield "", new_chat, new_msgs
-
-
-# ---------------------------------------------------------------------------
 # Gradio UI
 # ---------------------------------------------------------------------------
 
 with gr.Blocks(title="rin.music", theme=gr.themes.Soft()) as demo:
 
     gr.Markdown("# 🎼 rin.music")
+    gr.Markdown(
+        f"👔 **yasu** と話して歌詞を作ろう"
+        f"&emsp;｜&emsp;"
+        f"`{SAVE_KEYWORD}` で保存&emsp;`{LOAD_KEYWORD}` で続きから"
+    )
 
-    with gr.Tabs():
+    chatbot = gr.Chatbot(
+        label="",
+        show_label=False,
+        height=500,
+        bubble_full_width=False,
+        render_markdown=True,
+    )
 
-        # ── タブ1: 作詞チーム ──────────────────────────────────────────────
-        with gr.Tab("✍️ 作詞チーム"):
-            gr.Markdown(
-                f"👔 **yasu** と話して歌詞を作ろう"
-                f"&emsp;｜&emsp;"
-                f"`{SAVE_KEYWORD}` で保存&emsp;`{LOAD_KEYWORD}` で続きから"
-            )
+    with gr.Row():
+        msg_box = gr.Textbox(
+            placeholder="メッセージを入力...",
+            label="",
+            scale=5,
+            autofocus=True,
+        )
+        send_btn = gr.Button("送信", scale=1, variant="primary", min_width=60)
 
-            lyrics_chatbot = gr.Chatbot(
-                label="",
-                show_label=False,
-                height=500,
-                bubble_full_width=False,
-                render_markdown=True,
-            )
+    gr.Markdown(
+        f"<small>💡 チームメンバー: 👔 yasu (CEO) ／ 🎵 龍姫（たつき）(テーマ) ／ ✍️ レイ (作詞) ／ 🔍 ルキ (レビュー)</small>",
+        elem_id="footer",
+    )
 
-            with gr.Row():
-                lyrics_msg = gr.Textbox(
-                    placeholder="メッセージを入力...",
-                    label="",
-                    scale=5,
-                    autofocus=True,
-                )
-                lyrics_send = gr.Button("送信", scale=1, variant="primary", min_width=60)
+    state = gr.State([])
 
-            gr.Markdown(
-                "<small>💡 チームメンバー: 👔 yasu (CEO) ／ 🎵 龍姫（たつき）(テーマ) ／ ✍️ レイ (作詞) ／ 🔍 ルキ (レビュー)</small>"
-            )
+    msg_box.submit(respond, [msg_box, chatbot, state], [msg_box, chatbot, state])
+    send_btn.click(respond,  [msg_box, chatbot, state], [msg_box, chatbot, state])
 
-            lyrics_state = gr.State([])
-
-            lyrics_msg.submit(respond,      [lyrics_msg, lyrics_chatbot, lyrics_state], [lyrics_msg, lyrics_chatbot, lyrics_state])
-            lyrics_send.click(respond,      [lyrics_msg, lyrics_chatbot, lyrics_state], [lyrics_msg, lyrics_chatbot, lyrics_state])
-
-            demo.load(_get_greeting, outputs=[lyrics_chatbot, lyrics_state])
-
-        # ── タブ2: 音楽制作チーム ──────────────────────────────────────────
-        with gr.Tab("🎼 音楽制作チーム"):
-            gr.Markdown(
-                f"👔 **yasu** と話して音楽を作ろう"
-                f"&emsp;｜&emsp;"
-                f"`{SAVE_KEYWORD}` で保存&emsp;`{LOAD_KEYWORD}` で続きから"
-            )
-
-            music_chatbot = gr.Chatbot(
-                label="",
-                show_label=False,
-                height=500,
-                bubble_full_width=False,
-                render_markdown=True,
-            )
-
-            with gr.Row():
-                music_msg = gr.Textbox(
-                    placeholder="メッセージを入力...",
-                    label="",
-                    scale=5,
-                )
-                music_send = gr.Button("送信", scale=1, variant="primary", min_width=60)
-
-            gr.Markdown(
-                "<small>💡 チームメンバー: 👔 yasu (CEO) ／ 🎼 ハル（はる）(作曲) ／ 🎹 ソラ (アレンジ) ／ 🎚️ カイ (プロデュース)</small>"
-            )
-
-            music_state = gr.State([])
-
-            music_msg.submit(respond_music, [music_msg, music_chatbot, music_state], [music_msg, music_chatbot, music_state])
-            music_send.click(respond_music,  [music_msg, music_chatbot, music_state], [music_msg, music_chatbot, music_state])
-
-            demo.load(_get_music_greeting, outputs=[music_chatbot, music_state])
+    demo.load(_get_greeting, outputs=[chatbot, state])
 
 
 if __name__ == "__main__":

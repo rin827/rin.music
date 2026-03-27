@@ -147,7 +147,7 @@ def respond(user_input: str, chat_history: list, messages: list):
 # Gradio UI
 # ---------------------------------------------------------------------------
 
-with gr.Blocks(title="rin.music", theme=gr.themes.Soft()) as demo:
+with gr.Blocks(title="rin.music") as demo:
 
     gr.Markdown("# 🎼 rin.music")
     gr.Markdown(
@@ -160,7 +160,6 @@ with gr.Blocks(title="rin.music", theme=gr.themes.Soft()) as demo:
         label="",
         show_label=False,
         height=500,
-        bubble_full_width=False,
         render_markdown=True,
     )
 
@@ -192,4 +191,5 @@ if __name__ == "__main__":
         server_port=7860,
         share=True,              # 公開URL → どこからでもアクセス可
         show_error=True,
+        theme=gr.themes.Soft(),
     )

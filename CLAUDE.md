@@ -32,7 +32,7 @@
 （次のセッションで続きに必要な情報）
 ```
 
-### 「セッションスタート」と言われたとき
+### 「スタジオイン」と言われたとき
 1. `mcp__github__get_file_contents` ツールを使って `memory/session.md` を読み込む
    - owner: `rin827`
    - repo: `rin.music`

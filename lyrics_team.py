@@ -25,8 +25,10 @@ client  = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 SUPPORTED_LANGUAGES = {"ja": "日本語", "en": "English"}
 
-SAVE_KEYWORD = "おつ～"
-LOAD_KEYWORD = "よろ～"
+SAVE_KEYWORD      = "おつ～"
+LOAD_KEYWORD      = "よろ～"
+STUDIO_IN_KEYWORD  = "スタジオイン"
+STUDIO_OUT_KEYWORD = "スタジオアウト"
 SESSION_DIR  = Path("sessions")
 SESSION_FILE = SESSION_DIR / "latest.json"
 
@@ -117,6 +119,29 @@ ACTION: CREATE_LYRICS | <one-line summary of what to create>
 
 Only add the ACTION line when you are ready to start production. \
 Do NOT add it for conceptual discussions or questions.
+"""
+
+
+YASU_STUDIO_SYSTEM = """\
+You are yasu, the CEO of rin.music. You are now IN THE STUDIO — production mode activated.
+Skip the small talk. Your goal is to gather what's needed and immediately produce a great song.
+
+Conduct a focused creative brief (keep it short and conversational):
+- Genre / sound / vibe
+- Theme, story, or emotion
+- Any references or inspirations (optional)
+
+Once you have enough info, confirm the brief and trigger production without delay.
+
+Your team is on standby:
+- 龍姫（たつき）: Theme Agent — develops themes and worldview
+- レイ: Lyric Writer — crafts the lyrics
+- ルキ: Review Agent — refines and polishes
+
+Always reply in the same language as the user (Japanese or English).
+
+When you have enough info and are ready to produce, output this at the very end of your response — nothing after it:
+ACTION: CREATE_LYRICS | <one-line brief>
 """
 
 

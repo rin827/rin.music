@@ -25,8 +25,9 @@ client  = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 SUPPORTED_LANGUAGES = {"ja": "日本語", "en": "English"}
 
-SAVE_KEYWORD = "おつ～"
-LOAD_KEYWORD = "よろ～"
+SAVE_KEYWORD     = "おつ～"
+LOAD_KEYWORD     = "よろ～"
+STUDIO_IN_KEYWORD = "スタジオイン"
 SESSION_DIR  = Path("sessions")
 SESSION_FILE = SESSION_DIR / "latest.json"
 
@@ -149,6 +150,77 @@ def _parse_action(response: str) -> str | None:
 def _visible_response(response: str) -> str:
     """ACTION行をユーザーに見せないよう除去したテキスト。"""
     return re.sub(r'\nACTION:\s*CREATE_LYRICS\s*\|.+', '', response).rstrip()
+
+
+# ---------------------------------------------------------------------------
+# スタジオイン — チームメンバー入室シーケンス
+# ---------------------------------------------------------------------------
+
+_STUDIO_IN_PROMPT = (
+    "スタジオに入室した。一言で自己紹介して。"
+    "キャラに合わせて短く・個性的に。日本語で。"
+)
+
+_STUDIO_IN_MEMBERS = [
+    {
+        "name": "👔 yasu (CEO)",
+        "system": (
+            "You are yasu, CEO of rin.music. "
+            "You're entering the studio and kicking off a new session. "
+            "Greet the crew with energy, keep it very short (1-2 sentences). "
+            "Reply in Japanese, casual and enthusiastic."
+        ),
+    },
+    {
+        "name": "🎵 龍姫（たつき）",
+        "system": (
+            "あなたは龍姫（たつき）、rin.musicのテーマエージェント。"
+            "世界観と感情を創り出す詩的なクリエイター。"
+            "スタジオ入室時の一言自己紹介。クールで詩的な口調、1〜2文で。"
+        ),
+    },
+    {
+        "name": "✍️ レイ",
+        "system": (
+            "あなたはレイ、rin.musicの作詞エージェント。"
+            "言葉に魂を込めるプロの作詞家。"
+            "スタジオ入室時の一言自己紹介。情熱的でクリエイティブな口調、1〜2文で。"
+        ),
+    },
+    {
+        "name": "🔍 ルキ",
+        "system": (
+            "あなたはルキ、rin.musicのレビューエージェント。"
+            "歌詞の品質を磨く鋭い目を持つ音楽ディレクター。"
+            "スタジオ入室時の一言自己紹介。プロフェッショナルで端的な口調、1〜2文で。"
+        ),
+    },
+]
+
+
+def studio_in_stream():
+    """スタジオイン: 各メンバーが順番に自己紹介をストリーミングで返す。
+
+    Yields:
+        tuple[str, str, bool]: (member_name, chunk, is_done)
+            is_done=True はそのメンバーの発言が完了したことを示す。
+    """
+    for member in _STUDIO_IN_MEMBERS:
+        name   = member["name"]
+        system = member["system"]
+        with client.messages.stream(
+            model=MODEL,
+            max_tokens=150,
+            system=system,
+            messages=[{"role": "user", "content": _STUDIO_IN_PROMPT}],
+        ) as stream:
+            for event in stream:
+                if (
+                    event.type == "content_block_delta"
+                    and event.delta.type == "text_delta"
+                ):
+                    yield name, event.delta.text, False
+        yield name, "", True
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +447,7 @@ def create_lyrics(user_request: str) -> dict:
 def run_chat() -> None:
     print("=" * 60)
     print("🎼 rin.music")
-    print(f'   「{SAVE_KEYWORD}」で保存  「{LOAD_KEYWORD}」で続きから')
+    print(f'   「{SAVE_KEYWORD}」で保存  「{LOAD_KEYWORD}」で続きから  「{STUDIO_IN_KEYWORD}」でチーム入室')
     print("=" * 60)
 
     messages: list = []
@@ -402,6 +474,29 @@ def run_chat() -> None:
             print(f"\n💾 会話を保存しました → {path}")
             print("👔 yasu: またね！お疲れ～")
             break
+
+        # ── スタジオイン ──
+        if user_input == STUDIO_IN_KEYWORD:
+            print("\n🎙️  ━━━ スタジオイン！ ━━━\n")
+            member_texts: dict[str, str] = {}
+            ordered: list[str] = []
+            for name, chunk, is_done in studio_in_stream():
+                if name not in member_texts:
+                    member_texts[name] = ""
+                    ordered.append(name)
+                    print(f"\n{name}: ", end="", flush=True)
+                if not is_done:
+                    member_texts[name] += chunk
+                    print(chunk, end="", flush=True)
+                else:
+                    print()
+            print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+            studio_reply = "\n".join(
+                f"{n}: {member_texts[n]}" for n in ordered
+            )
+            messages.append({"role": "user",      "content": STUDIO_IN_KEYWORD})
+            messages.append({"role": "assistant", "content": studio_reply})
+            continue
 
         # ── 読み込み ──
         if user_input == LOAD_KEYWORD:

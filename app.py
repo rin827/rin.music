@@ -13,11 +13,13 @@ import gradio as gr
 from lyrics_team import (
     SAVE_KEYWORD,
     LOAD_KEYWORD,
+    STUDIO_IN_KEYWORD,
     save_session,
     load_session,
     _visible_response,
     _parse_action,
     create_lyrics,
+    studio_in_stream,
     YASU_CHAT_SYSTEM,
     client,
     MODEL,
@@ -102,6 +104,42 @@ def respond(user_input: str, chat_history: list, messages: list):
         yield "", new_chat, updated
         return
 
+    # ── スタジオイン ──
+    if user_input == STUDIO_IN_KEYWORD:
+        new_chat = chat_history + [(user_input, "🎙️ **スタジオイン！** メンバーが入室します...")]
+        yield "", new_chat, messages
+
+        member_texts: dict[str, str] = {}
+        ordered: list[str] = []
+
+        for name, chunk, is_done in studio_in_stream():
+            if name not in member_texts:
+                member_texts[name] = ""
+                ordered.append(name)
+            if not is_done:
+                member_texts[name] += chunk
+
+            # 各メンバーのバブルを順番に更新
+            display = list(new_chat)
+            for n in ordered:
+                text = member_texts[n]
+                if text:
+                    display.append((None, f"**{n}**\n\n{text}"))
+            yield "", display, messages
+
+        studio_reply = "\n\n---\n\n".join(
+            f"**{n}**\n\n{member_texts[n]}" for n in ordered
+        )
+        new_msgs = messages + [
+            {"role": "user",      "content": STUDIO_IN_KEYWORD},
+            {"role": "assistant", "content": studio_reply},
+        ]
+        final_chat = list(new_chat)
+        for n in ordered:
+            final_chat.append((None, f"**{n}**\n\n{member_texts[n]}"))
+        yield "", final_chat, new_msgs
+        return
+
     # ── 通常会話（ストリーミング）──
     new_msgs  = messages + [{"role": "user", "content": user_input}]
     new_chat  = chat_history + [(user_input, "")]
@@ -153,7 +191,8 @@ with gr.Blocks(title="rin.music", theme=gr.themes.Soft()) as demo:
     gr.Markdown(
         f"👔 **yasu** と話して歌詞を作ろう"
         f"&emsp;｜&emsp;"
-        f"`{SAVE_KEYWORD}` で保存&emsp;`{LOAD_KEYWORD}` で続きから"
+        f"`{STUDIO_IN_KEYWORD}` でチーム入室"
+        f"&emsp;`{SAVE_KEYWORD}` で保存&emsp;`{LOAD_KEYWORD}` で続きから"
     )
 
     chatbot = gr.Chatbot(

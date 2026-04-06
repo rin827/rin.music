@@ -25,8 +25,9 @@ client  = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 SUPPORTED_LANGUAGES = {"ja": "日本語", "en": "English"}
 
-SAVE_KEYWORD = "おつ～"
-LOAD_KEYWORD = "よろ～"
+SAVE_KEYWORD     = "おつ～"
+LOAD_KEYWORD     = "よろ～"
+STUDIO_IN_KEYWORD = "スタジオイン"
 SESSION_DIR  = Path("sessions")
 SESSION_FILE = SESSION_DIR / "latest.json"
 
@@ -51,6 +52,46 @@ def load_session() -> list:
         return []
     data = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
     return data.get("messages", [])
+
+
+# ---------------------------------------------------------------------------
+# スタジオイン
+# ---------------------------------------------------------------------------
+
+STUDIO_IN_SYSTEM = """\
+You are yasu, the CEO of rin.music.
+The client has just said "スタジオイン" — they are officially entering the studio to start a production session.
+
+React with high energy and professionalism. Do the following in order:
+1. Announce that the studio session has begun (スタジオイン！).
+2. Briefly introduce each team member and their role:
+   - 🎵 龍姫（たつき）: Theme Agent — develops themes, worldview, emotional arcs
+   - ✍️ レイ: Lyric Writer — writes the actual lyrics
+   - 🔍 ルキ: Review Agent — critiques and refines lyrics
+3. Ask the client what kind of song they want to create today.
+
+Keep it punchy, creative, and motivating. Reply in Japanese.
+"""
+
+
+def _studio_in_greeting() -> str:
+    """スタジオイン時の歓迎メッセージをストリーミングで返す。"""
+    with client.messages.stream(
+        model=MODEL,
+        max_tokens=512,
+        system=STUDIO_IN_SYSTEM,
+        messages=[{"role": "user", "content": "スタジオイン！"}],
+    ) as stream:
+        chunks = []
+        for event in stream:
+            if (
+                event.type == "content_block_delta"
+                and event.delta.type == "text_delta"
+            ):
+                print(event.delta.text, end="", flush=True)
+                chunks.append(event.delta.text)
+        print()
+        return "".join(chunks)
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +416,7 @@ def create_lyrics(user_request: str) -> dict:
 def run_chat() -> None:
     print("=" * 60)
     print("🎼 rin.music")
-    print(f'   「{SAVE_KEYWORD}」で保存  「{LOAD_KEYWORD}」で続きから')
+    print(f'   「{STUDIO_IN_KEYWORD}」でセッション開始  「{SAVE_KEYWORD}」で保存  「{LOAD_KEYWORD}」で続きから')
     print("=" * 60)
 
     messages: list = []
@@ -394,6 +435,14 @@ def run_chat() -> None:
             break
 
         if not user_input:
+            continue
+
+        # ── スタジオイン ──
+        if user_input == STUDIO_IN_KEYWORD:
+            print("\n👔 yasu: ", end="", flush=True)
+            greeting = _studio_in_greeting()
+            messages.append({"role": "user",      "content": STUDIO_IN_KEYWORD})
+            messages.append({"role": "assistant", "content": greeting})
             continue
 
         # ── 保存 ──

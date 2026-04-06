@@ -13,6 +13,7 @@ import gradio as gr
 from lyrics_team import (
     SAVE_KEYWORD,
     LOAD_KEYWORD,
+    STUDIO_IN_KEYWORD,
     save_session,
     load_session,
     _visible_response,
@@ -43,6 +44,22 @@ def _stream_yasu(messages: list):
                 yield event.delta.text
 
 
+def _stream_studio_in():
+    from lyrics_team import STUDIO_IN_SYSTEM
+    with client.messages.stream(
+        model=MODEL,
+        max_tokens=512,
+        system=STUDIO_IN_SYSTEM,
+        messages=[{"role": "user", "content": "スタジオイン！"}],
+    ) as stream:
+        for event in stream:
+            if (
+                event.type == "content_block_delta"
+                and event.delta.type == "text_delta"
+            ):
+                yield event.delta.text
+
+
 def _get_greeting() -> tuple[list, list]:
     """起動時の挨拶。"""
     greeting = "".join(_stream_yasu([
@@ -63,6 +80,21 @@ def _get_greeting() -> tuple[list, list]:
 def respond(user_input: str, chat_history: list, messages: list):
     if not user_input.strip():
         yield "", chat_history, messages
+        return
+
+    # ── スタジオイン ──
+    if user_input == STUDIO_IN_KEYWORD:
+        new_chat = chat_history + [(user_input, "")]
+        reply = ""
+        for chunk in _stream_studio_in():
+            reply += chunk
+            new_chat[-1] = (user_input, reply)
+            yield "", new_chat, messages
+        new_msgs = messages + [
+            {"role": "user",      "content": STUDIO_IN_KEYWORD},
+            {"role": "assistant", "content": reply},
+        ]
+        yield "", new_chat, new_msgs
         return
 
     # ── 保存 ──
@@ -153,6 +185,7 @@ with gr.Blocks(title="rin.music", theme=gr.themes.Soft()) as demo:
     gr.Markdown(
         f"👔 **yasu** と話して歌詞を作ろう"
         f"&emsp;｜&emsp;"
+        f"`{STUDIO_IN_KEYWORD}` でセッション開始&emsp;"
         f"`{SAVE_KEYWORD}` で保存&emsp;`{LOAD_KEYWORD}` で続きから"
     )
 

@@ -2,10 +2,15 @@
 rin.music — 作詞チームエージェント
 
 メンバー:
-  👔 yasu       : CEO — 戦略・指揮
+  👔 yasu         : CEO — 戦略・指揮
   🎵 龍姫（たつき）: テーマエージェント
-  ✍️  レイ        : 作詞エージェント
-  🔍 ルキ        : レビューエージェント
+  ✍️  レイ          : 作詞エージェント
+  🔍 ルキ          : レビューエージェント
+
+スタジオチーム:
+  🎸 ケンジ        : アレンジャー — コード・楽器編成
+  🎤 ミオ          : ボイスディレクター — ボーカル指導
+  🎚️  ダイ          : エンジニア — 録音・ミックス設定
 
 使い方:
   python lyrics_team.py       チャットモードで起動
@@ -103,10 +108,15 @@ YASU_CHAT_SYSTEM = """\
 You are yasu, the CEO of rin.music, a creative music production company.
 You're having a natural, casual conversation with your client about their music.
 
-Your team:
+Your lyrics team:
 - 龍姫（たつき）: Theme Agent — develops themes, worldview, emotional arcs
 - レイ: Lyric Writer — writes the actual lyrics
 - ルキ: Review Agent — critiques and refines lyrics
+
+Your studio team:
+- ケンジ: Arranger — chord progressions, instrumentation, BPM, key
+- ミオ: Voice Director — vocal delivery, emotion, phrasing guidance
+- ダイ: Sound Engineer — recording setup, mic, mixing notes
 
 Personality: creative, enthusiastic, concise. You speak casually but with professional instincts.
 Always reply in the same language the user uses (Japanese or English).
@@ -115,7 +125,12 @@ When the user wants lyrics ACTUALLY CREATED (not just discussed), \
 output this line at the very end of your response — nothing after it:
 ACTION: CREATE_LYRICS | <one-line summary of what to create>
 
-Only add the ACTION line when you are ready to start production. \
+When the user wants to START A RECORDING SESSION or enter the studio \
+(e.g. they have lyrics ready and want to record, or say スタジオイン / studio in / let's record), \
+output this line at the very end of your response — nothing after it:
+ACTION: STUDIO_IN | <one-line summary of the song and session goal>
+
+Only add ONE ACTION line when you are ready. \
 Do NOT add it for conceptual discussions or questions.
 """
 
@@ -146,9 +161,17 @@ def _parse_action(response: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
+def _parse_studio_action(response: str) -> str | None:
+    """ACTION: STUDIO_IN | <request> を抽出する。なければ None。"""
+    m = re.search(r'ACTION:\s*STUDIO_IN\s*\|\s*(.+)', response)
+    return m.group(1).strip() if m else None
+
+
 def _visible_response(response: str) -> str:
     """ACTION行をユーザーに見せないよう除去したテキスト。"""
-    return re.sub(r'\nACTION:\s*CREATE_LYRICS\s*\|.+', '', response).rstrip()
+    cleaned = re.sub(r'\nACTION:\s*CREATE_LYRICS\s*\|.+', '', response)
+    cleaned = re.sub(r'\nACTION:\s*STUDIO_IN\s*\|.+', '', cleaned)
+    return cleaned.rstrip()
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +392,260 @@ def create_lyrics(user_request: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# スタジオインパイプライン（アレンジャー→ボイスディレクター→エンジニア）
+# ---------------------------------------------------------------------------
+
+STUDIO_CEO_SYSTEM = """\
+You are yasu, the CEO of rin.music.
+Your job is to receive a recording session request and produce a Studio Production Brief \
+that directs your studio team (Arranger, Voice Director, Sound Engineer).
+
+Analyze the request and decide:
+- Genre (be specific)
+- Language ("ja" or "en")
+- Song Title (working title or given title)
+- BPM Range (suggested tempo)
+- Key (suggested musical key)
+- Session Goal (what this session aims to achieve)
+- Specific directives for each studio team member
+
+Output your brief in the following exact format (fill in every field):
+
+**Genre:** <genre>
+**Language:** <ja or en>
+**Song Title:** <title>
+**BPM Range:** <e.g. 80-90>
+**Key:** <e.g. A minor>
+**Session Goal:** <goal>
+
+### Directive — Arranger
+<instructions for the arranger>
+
+### Directive — Voice Director
+<instructions for the voice director>
+
+### Directive — Sound Engineer
+<instructions for the sound engineer>
+
+### CEO Studio Note
+<any additional creative or strategic notes>
+"""
+
+
+def _arranger_system(genre: str, language: str, directive: str) -> str:
+    if language == "en":
+        return f"""\
+You are ケンジ (Kenji), a professional music arranger specializing in {genre}.
+The CEO has given you the following directive:
+{directive}
+
+Create a detailed arrangement sheet for this recording session.
+
+Output format:
+## Chord Progression
+## Instrumentation
+## Structure & Sections
+## BPM & Groove
+## Reference Tracks
+"""
+    return f"""\
+あなたはケンジ、{genre}専門のプロのアレンジャーです。
+CEOからの指示:
+{directive}
+
+このレコーディングセッション用の詳細なアレンジシートを作成してください。
+
+出力形式:
+## コード進行
+## 楽器編成
+## 構成・セクション
+## BPMとグルーヴ
+## 参考楽曲
+"""
+
+
+def _voice_director_system(genre: str, language: str, directive: str) -> str:
+    if language == "en":
+        return f"""\
+You are ミオ (Mio), a vocal coach and voice director specializing in {genre}.
+The CEO has given you the following directive:
+{directive}
+
+Create a detailed vocal direction sheet for this recording session.
+
+Output format:
+## Overall Vocal Tone
+## Section-by-Section Delivery Guide
+## Breath & Phrasing Notes
+## Emotion & Expression Cues
+## Warm-up Suggestions
+"""
+    return f"""\
+あなたはミオ、{genre}専門のボイスコーチ兼ボイスディレクターです。
+CEOからの指示:
+{directive}
+
+このレコーディングセッション用の詳細なボーカルディレクションシートを作成してください。
+
+出力形式:
+## 全体のボーカルトーン
+## セクション別歌い方ガイド
+## ブレスとフレージング
+## 感情・表現のキュー
+## ウォームアップ提案
+"""
+
+
+def _engineer_system(genre: str, language: str, directive: str) -> str:
+    if language == "en":
+        return f"""\
+You are ダイ (Dai), a recording and mixing engineer specializing in {genre}.
+The CEO has given you the following directive:
+{directive}
+
+Create a technical setup sheet for this recording session.
+
+Output format:
+## Microphone Setup
+## Signal Chain & Preamp Notes
+## Room & Acoustics
+## Monitoring Setup
+## Mix Direction & Key Processing
+"""
+    return f"""\
+あなたはダイ、{genre}専門のレコーディング＆ミックスエンジニアです。
+CEOからの指示:
+{directive}
+
+このレコーディングセッション用のテクニカルセットアップシートを作成してください。
+
+出力形式:
+## マイクセットアップ
+## シグナルチェーン・プリアンプ
+## 部屋・アコースティクス
+## モニタリング設定
+## ミックス方針・主要処理
+"""
+
+
+def save_studio_file(result: dict, request: str) -> str:
+    output_dir = Path("studio")
+    output_dir.mkdir(exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    slug = _safe_filename(request)
+    filename = output_dir / f"{timestamp}_{slug}.md"
+    lang_label = SUPPORTED_LANGUAGES.get(result.get("language", "ja"), "日本語")
+    content = f"""\
+# スタジオシート / Studio Sheet
+
+**セッション:** {request}
+**ジャンル:** {result.get('genre', '')}
+**言語:** {lang_label}
+**タイトル:** {result.get('title', '')}
+**BPM範囲:** {result.get('bpm', '')}
+**キー:** {result.get('key', '')}
+**作成日時:** {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+---
+
+## CEO スタジオ制作指令書
+
+{result['brief']}
+
+---
+
+## アレンジシート（ケンジ）
+
+{result['arrangement']}
+
+---
+
+## ボーカルディレクション（ミオ）
+
+{result['vocal_direction']}
+
+---
+
+## テクニカルセットアップ（ダイ）
+
+{result['engineering']}
+"""
+    filename.write_text(content, encoding="utf-8")
+    return str(filename)
+
+
+def create_studio_session(user_request: str) -> dict:
+    """スタジオインパイプライン: CEO→アレンジャー→ボイスディレクター→エンジニア。"""
+    print("\n👔 [yasu / CEO] スタジオ制作指令書を作成中...\n")
+    brief = _stream_response(
+        STUDIO_CEO_SYSTEM,
+        [{"role": "user", "content": user_request}],
+    )
+
+    genre    = _parse_field(brief, "Genre",        default="J-POP")
+    language = _parse_field(brief, "Language",     default="ja").strip().lower()
+    title    = _parse_field(brief, "Song Title",   default="Untitled")
+    bpm      = _parse_field(brief, "BPM Range",    default="")
+    key      = _parse_field(brief, "Key",          default="")
+    if language not in SUPPORTED_LANGUAGES:
+        language = "ja"
+
+    lang_label = SUPPORTED_LANGUAGES[language]
+    print(f"\n   📋 Genre: {genre} | Language: {lang_label} | Title: {title} | BPM: {bpm} | Key: {key}")
+
+    arr_dir   = _extract_directive(brief, "Arranger")
+    voice_dir = _extract_directive(brief, "Voice Director")
+    eng_dir   = _extract_directive(brief, "Sound Engineer")
+
+    base_prompt = (
+        f"Genre: {genre}\nSession request: {user_request}"
+        if language == "en" else
+        f"ジャンル: {genre}\nセッションリクエスト: {user_request}"
+    )
+
+    print(f"\n🎸 [ケンジ / アレンジャー] アレンジシートを作成中...\n")
+    arrangement = _stream_response(
+        _arranger_system(genre, language, arr_dir),
+        [{"role": "user", "content": base_prompt}],
+    )
+
+    print(f"\n🎤 [ミオ / ボイスディレクター] ボーカルディレクションを作成中...\n")
+    voice_prompt = (
+        base_prompt + f"\n\nArrangement:\n{arrangement}"
+        if language == "en" else
+        base_prompt + f"\n\nアレンジ:\n{arrangement}"
+    )
+    vocal_direction = _stream_response(
+        _voice_director_system(genre, language, voice_dir),
+        [{"role": "user", "content": voice_prompt}],
+    )
+
+    print(f"\n🎚️  [ダイ / エンジニア] テクニカルセットアップを作成中...\n")
+    eng_prompt = (
+        base_prompt + f"\n\nArrangement:\n{arrangement}"
+        if language == "en" else
+        base_prompt + f"\n\nアレンジ:\n{arrangement}"
+    )
+    engineering = _stream_response(
+        _engineer_system(genre, language, eng_dir),
+        [{"role": "user", "content": eng_prompt}],
+    )
+
+    result = {
+        "brief": brief, "genre": genre, "language": language, "title": title,
+        "bpm": bpm, "key": key,
+        "arrangement": arrangement,
+        "vocal_direction": vocal_direction,
+        "engineering": engineering,
+    }
+    saved = save_studio_file(result, user_request)
+    result["saved_to"] = saved
+
+    print(f"\n✅ スタジオシート完成！  Saved → {saved}")
+    return result
+
+
+# ---------------------------------------------------------------------------
 # チャット REPL
 # ---------------------------------------------------------------------------
 
@@ -426,7 +703,8 @@ def run_chat() -> None:
         print("\n👔 yasu: ", end="", flush=True)
         response = _chat_turn(messages)
 
-        action_request = _parse_action(response)
+        action_request  = _parse_action(response)
+        studio_request  = _parse_studio_action(response)
         visible = _visible_response(response)
 
         messages.append({"role": "assistant", "content": visible})
@@ -436,12 +714,23 @@ def run_chat() -> None:
             print("\n" + "─" * 60)
             result = create_lyrics(action_request)
             print("─" * 60)
-            # 作詞完了をチャット履歴に記録
             summary = (
                 f"[作詞完了] タイトル: {result['title']} / "
                 f"ジャンル: {result['genre']} / 保存先: {result['saved_to']}"
             )
             messages.append({"role": "user",      "content": "[作詞完了の報告]"})
+            messages.append({"role": "assistant", "content": summary})
+
+        # ── スタジオインアクション ──
+        elif studio_request:
+            print("\n" + "─" * 60)
+            result = create_studio_session(studio_request)
+            print("─" * 60)
+            summary = (
+                f"[スタジオイン完了] タイトル: {result['title']} / "
+                f"ジャンル: {result['genre']} / 保存先: {result['saved_to']}"
+            )
+            messages.append({"role": "user",      "content": "[スタジオイン完了の報告]"})
             messages.append({"role": "assistant", "content": summary})
 
 

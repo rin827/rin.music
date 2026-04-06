@@ -17,7 +17,9 @@ from lyrics_team import (
     load_session,
     _visible_response,
     _parse_action,
+    _parse_studio_action,
     create_lyrics,
+    create_studio_session,
     YASU_CHAT_SYSTEM,
     client,
     MODEL,
@@ -112,7 +114,8 @@ def respond(user_input: str, chat_history: list, messages: list):
         new_chat[-1] = (user_input, response)
         yield "", new_chat, messages
 
-    action  = _parse_action(response)
+    action        = _parse_action(response)
+    studio_action = _parse_studio_action(response)
     visible = _visible_response(response)
     new_chat[-1] = (user_input, visible)
     new_msgs = new_msgs + [{"role": "assistant", "content": visible}]
@@ -135,6 +138,37 @@ def respond(user_input: str, chat_history: list, messages: list):
         summary = f"[作詞完了] {result['title']} / {result['genre']} / {result['saved_to']}"
         new_msgs = new_msgs + [
             {"role": "user",      "content": "[作詞完了の報告]"},
+            {"role": "assistant", "content": summary},
+        ]
+        yield "", new_chat, new_msgs
+        return
+
+    # ── スタジオインパイプライン ──
+    if studio_action:
+        new_chat = new_chat + [(None, "🎚️ **ケンジ・ミオ・ダイがスタジオセッションを準備します！**\n\nしばらくお待ちください...")]
+        yield "", new_chat, new_msgs
+
+        result = create_studio_session(studio_action)
+
+        studio_reply = (
+            f"✅ **スタジオシートが完成しました！**\n\n"
+            f"**タイトル:** {result['title']}\n"
+            f"**ジャンル:** {result['genre']}\n"
+            f"**BPM:** {result['bpm']}　**キー:** {result['key']}\n"
+            f"**保存先:** `{result['saved_to']}`\n\n"
+            f"---\n\n"
+            f"### 🎸 アレンジ（ケンジ）\n\n{result['arrangement']}\n\n"
+            f"---\n\n"
+            f"### 🎤 ボーカルディレクション（ミオ）\n\n{result['vocal_direction']}\n\n"
+            f"---\n\n"
+            f"### 🎚️ テクニカルセットアップ（ダイ）\n\n{result['engineering']}"
+        )
+        new_chat[-1] = (None, studio_reply)
+        summary = (
+            f"[スタジオイン完了] {result['title']} / {result['genre']} / {result['saved_to']}"
+        )
+        new_msgs = new_msgs + [
+            {"role": "user",      "content": "[スタジオイン完了の報告]"},
             {"role": "assistant", "content": summary},
         ]
         yield "", new_chat, new_msgs
@@ -174,7 +208,8 @@ with gr.Blocks(title="rin.music", theme=gr.themes.Soft()) as demo:
         send_btn = gr.Button("送信", scale=1, variant="primary", min_width=60)
 
     gr.Markdown(
-        f"<small>💡 チームメンバー: 👔 yasu (CEO) ／ 🎵 龍姫（たつき）(テーマ) ／ ✍️ レイ (作詞) ／ 🔍 ルキ (レビュー)</small>",
+        "<small>💡 作詞チーム: 👔 yasu (CEO) ／ 🎵 龍姫（たつき）(テーマ) ／ ✍️ レイ (作詞) ／ 🔍 ルキ (レビュー)"
+        "　｜　スタジオチーム: 🎸 ケンジ (アレンジ) ／ 🎤 ミオ (ボーカル) ／ 🎚️ ダイ (エンジニア)</small>",
         elem_id="footer",
     )
 
